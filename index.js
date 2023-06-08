@@ -194,12 +194,54 @@ async function run() {
         clientSecret: paymentIntent.client_secret
       })
     })
-    
+
     // payment related api
-    app.post('/payments',verifyJWT,async (req,res)=>{
+    app.post('/payments', verifyJWT, async (req, res) => {
       const payment = req.body;
-      const result = await paymentCollection.insertOne(payment)
-      result.send(result)
+      const insertResult = await paymentCollection.insertOne(payment)
+
+      const query = { _id: { $in: payment.itemID.map(id => new ObjectId(id)) } }
+      const deleteResult = await cartCollection.deleteMany(query)
+      res.send({ insertResult, deleteResult })
+    })
+
+    // admin dashboard
+    app.get('/admin-statue',verifyJWT,verifyAdmin, async (req, res) => {
+      const user = await usersCollection.estimatedDocumentCount();
+      const product = await menuCollection.estimatedDocumentCount();
+      const orders = await paymentCollection.estimatedDocumentCount();
+      const payments = await paymentCollection.find().toArray();
+      const revenue = payments.reduce((sum,payment)=>sum+payment.price,0)
+      res.send({
+        user,
+        product,
+        orders,
+        revenue
+      })
+    })
+
+    app.get('/oder-status',async(req,res)=>{
+      const pipeline = [
+        {
+          $lookup:{
+            from:'menu',
+            localField:'menuItems',
+            foreignField:'_id',
+            as:'menuItemsData',
+          }
+        },
+        {
+          $unwind:'$menuItemsData'
+        },
+        {
+          $group:{
+            _id:"$menuItemsData.category",
+            count:{$sum:'$menuItemsData.price'}
+          }
+        }
+      ];
+      const result = await paymentCollection.aggregate(pipeline).toArray()
+      res.send(result)
     })
 
 
